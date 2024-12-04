@@ -1,0 +1,3 @@
+gaussian blur 0.002 for 20 0.001 for rest
+super resolution 0.02
+compressed sensing 0.3

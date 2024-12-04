@@ -15,6 +15,7 @@ from data.dataloader import get_dataset, get_dataloader
 from util.img_utils import clear_color, mask_generator
 from util.logger import get_logger
 import torchvision
+from util.dataset import Dataset
 
 
 def load_yaml(file_path: str) -> dict:
@@ -93,7 +94,7 @@ def main():
     data_config = task_config['data']
     transform = transforms.Compose([transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    dataset = get_dataset(**data_config, transforms=transform)
+    dataset = Dataset(root = "data/samples", transform = transform) # change your imagenet root here
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
 
     # Exception) In case of inpainting, we need to generate a mask 
@@ -103,8 +104,8 @@ def main():
         )
         
     # Do Inference
-    for i, ref_img in enumerate(loader):
-        if i >= 1000:
+    for i, (ref_img, c) in enumerate(loader):
+        if i >= 3:
             break
         logger.info(f"Inference for image {i}")
         fname = f'{i:03}.png'
@@ -116,6 +117,7 @@ def main():
 
         # Sampling
         x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
+        # x_start = 0.3 * x_start + 0.7 * operator.transpose(y_n).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
 
         plt.imsave(os.path.join(out_path, 'input', fname), clear_color(y_n))

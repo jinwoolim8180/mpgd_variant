@@ -2,6 +2,7 @@ from functools import partial
 import os
 import argparse
 import yaml
+import random
 
 import torch
 import torchvision.transforms as transforms
@@ -15,6 +16,7 @@ from data.dataloader import get_dataset, get_dataloader
 from util.img_utils import clear_color, mask_generator
 from util.logger import get_logger
 import torchvision
+from util.dataset import Dataset
 
 
 def load_yaml(file_path: str) -> dict:
@@ -96,19 +98,19 @@ def main():
         transforms.CenterCrop(256),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    dataset = torchvision.datasets.ImageFolder(root = "imagenet_root", transform = transform) # change your imagenet root here
+    dataset = Dataset(root = "data/Set11", transform = transform) # change your imagenet root here
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
         
     # Do Inference
     n_saved = 0
-    c_set = []
+    length = 11
+    c_set = list(range(min(len(dataset), length)))
     for i, (ref_img, c) in enumerate(loader):
         c = int(c)
-        if c in c_set:
-            continue
-        c_set += [c]
-        if n_saved >= 1000:
+        if n_saved >= length:
             break
+        if i not in c_set:
+            continue
         logger.info(f"Inference for image {i}, saved {len(c_set)}")
         fname = f'{i:05}_{c:05}.png'
         ref_img = ref_img.to(device)
@@ -119,6 +121,7 @@ def main():
 
         # Sampling
         x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
+        x_start = 0.3 * x_start + 0.7 * operator.transpose(y_n).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
 
         plt.imsave(os.path.join(out_path, 'input', fname), clear_color(y_n))
@@ -126,6 +129,7 @@ def main():
         plt.imsave(os.path.join(out_path, 'recon', fname), clear_color(sample))
         
         n_saved += 1
+    print(f"save: {n_saved}")
 
 if __name__ == '__main__':
     main()

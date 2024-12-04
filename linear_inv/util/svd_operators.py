@@ -4,6 +4,18 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from tqdm import tqdm
+
+
+def jacobian_of_f(f, z, create_graph=True):
+    batch_size, c, h, w = z.size()
+    z_dim = c * h * w
+    out = (
+        torch.autograd.functional.jacobian(
+            f, z, create_graph=create_graph
+        ).view(batch_size, z_dim, -1)
+    )
+    return out 
 
     
 class A_functions:

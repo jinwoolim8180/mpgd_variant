@@ -9,6 +9,7 @@ from motionblur.motionblur import Kernel
 
 from util.resizer import Resizer
 from util.img_utils import Blurkernel, fft2_m
+from util.svd_operators import CS
 
 
 # =================
@@ -77,6 +78,51 @@ class SuperResolutionOperator(LinearOperator):
         self.up_sample = partial(F.interpolate, scale_factor=scale_factor)
         self.down_sample = Resizer(in_shape, 1/scale_factor).to(device)
 
+    def generate_downsampling_matrix(input_height, input_width, scale_factor):
+        """
+        Generates a downsampling matrix for averaging and subsampling with scale_factor.
+        
+        Args:
+            input_height (int): Height of the input image.
+            input_width (int): Width of the input image.
+            scale_factor (int): Downsampling scale factor (block size).
+            
+        Returns:
+            torch.Tensor: Downsampling matrix of shape (output_size, input_size),
+                        where output_size = (input_height // scale_factor) * (input_width // scale_factor),
+                        and input_size = input_height * input_width.
+        """
+        assert input_height % scale_factor == 0, "Input height must be divisible by the scale factor."
+        assert input_width % scale_factor == 0, "Input width must be divisible by the scale factor."
+
+        # Compute output dimensions
+        output_height = input_height // scale_factor
+        output_width = input_width // scale_factor
+
+        # Total number of pixels in input and output images
+        input_size = input_height * input_width
+        output_size = output_height * output_width
+
+        # Initialize the downsampling matrix
+        downsampling_matrix = torch.zeros((output_size, input_size))
+
+        for i in range(output_height):
+            for j in range(output_width):
+                # Output pixel index
+                output_idx = i * output_width + j
+                
+                # Indices of the input pixels contributing to this output pixel
+                for di in range(scale_factor):
+                    for dj in range(scale_factor):
+                        input_i = i * scale_factor + di
+                        input_j = j * scale_factor + dj
+                        input_idx = input_i * input_width + input_j
+
+                        # Assign equal weight to each contributing input pixel
+                        downsampling_matrix[output_idx, input_idx] = 1 / (scale_factor ** 2)
+
+        return downsampling_matrix
+
     def forward(self, data, **kwargs):
         return self.down_sample(data)
 
@@ -85,6 +131,24 @@ class SuperResolutionOperator(LinearOperator):
 
     def project(self, data, measurement, **kwargs):
         return data - self.transpose(self.forward(data)) + self.transpose(measurement)
+    
+
+@register_operator(name='compressed_sensing')
+class CompressedSensingOperator(LinearOperator):
+    def __init__(self, in_shape, cs_ratio, device):
+        self.device = device
+        self.in_shape = in_shape
+        self.A_func = CS(in_shape[1], in_shape[2], cs_ratio, self.device)
+
+    def forward(self, data, **kwargs):
+        return self.A_func.A(data)
+
+    def transpose(self, data, **kwargs):
+        return self.A_func.A_pinv(data).reshape(self.in_shape[0], 3, 256, 256)
+
+    def project(self, data, measurement, **kwargs):
+        return data - self.transpose(self.forward(data)) + self.transpose(measurement)
+    
 
 @register_operator(name='motion_blur')
 class MotionBlurOperator(LinearOperator):

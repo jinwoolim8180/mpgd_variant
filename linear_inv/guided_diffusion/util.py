@@ -12,6 +12,7 @@ from queue import Queue
 
 from inspect import isfunction
 from PIL import Image, ImageDraw, ImageFont
+from ldm.models.diffusion.ddpm import DDPM
 
 
 def log_txt_as_img(wh, xc, size=10):
@@ -88,9 +89,11 @@ def instantiate_from_config(config):
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
     if reload:
+        print(module)
         module_imp = importlib.import_module(module)
         importlib.reload(module_imp)
-    return getattr(importlib.import_module(module, package=None), cls)
+    m = importlib.import_module(module, package=None)
+    return getattr(m, cls)
 
 
 def _do_parallel_data_prefetch(func, Q, data, idx, idx_to_fn=False):
