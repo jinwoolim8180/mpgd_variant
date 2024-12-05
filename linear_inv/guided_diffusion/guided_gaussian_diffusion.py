@@ -493,10 +493,11 @@ class DDIMx0(SpacedDiffusion):
             x_0_hat = out['pred_xstart'].detach()
             with torch.enable_grad():
                 x_0_hat = x_0_hat.requires_grad_()
-                x0_t, distance = measurement_cond_fn(measurement=measurement,
+                x0_t, distance, gamma = measurement_cond_fn(measurement=measurement,
                                           x_0_hat=x_0_hat,
                                           at=alpha_bar_prev,
-                                          t=t/self.num_timesteps)
+                                          t=t/self.num_timesteps,
+                                          sigma=sigma)
             
             out["pred_xstart"] = x0_t
             
@@ -504,12 +505,12 @@ class DDIMx0(SpacedDiffusion):
             noise = torch.randn_like(x)
             mean_pred = (
                 out["pred_xstart"] * torch.sqrt(alpha_bar_prev)
-                + torch.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
+                + gamma * torch.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
             )
 
             img = mean_pred
             if t != 0:
-                img += sigma * noise
+                img += gamma * sigma * noise
             img = img.detach_()
            
             pbar.set_postfix({'distance': distance.item()}, refresh=False)

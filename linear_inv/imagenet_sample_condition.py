@@ -17,6 +17,7 @@ from util.img_utils import clear_color, mask_generator
 from util.logger import get_logger
 import torchvision
 from util.dataset import Dataset
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 
 def load_yaml(file_path: str) -> dict:
@@ -103,6 +104,8 @@ def main():
         
     # Do Inference
     n_saved = 0
+    psnrs = []
+    ssims = []
     length = 11
     c_set = list(range(min(len(dataset), length)))
     for i, (ref_img, c) in enumerate(loader):
@@ -121,15 +124,24 @@ def main():
 
         # Sampling
         x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
-        x_start = 0.3 * x_start + 0.7 * operator.transpose(y_n).requires_grad_()
+        # x_start = 0.3 * x_start + 0.7 * operator.transpose(y_n).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
+
+        ground = clear_color(ref_img)
+        generated = clear_color(sample)
+        psnrs.append(peak_signal_noise_ratio(ground, generated))
+        ssims.append(structural_similarity(ground, generated, data_range=1, channel_axis=2))
 
         plt.imsave(os.path.join(out_path, 'input', fname), clear_color(y_n))
         plt.imsave(os.path.join(out_path, 'label', fname), clear_color(ref_img))
         plt.imsave(os.path.join(out_path, 'recon', fname), clear_color(sample))
         
         n_saved += 1
+        
     print(f"save: {n_saved}")
+    print(f"PSNR: {sum(psnrs) / len(psnrs)}")
+    print(f"SSIM: {sum(ssims) / len(ssims)}\n")
+
 
 if __name__ == '__main__':
     main()

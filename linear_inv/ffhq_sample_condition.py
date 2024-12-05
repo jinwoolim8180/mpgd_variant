@@ -16,6 +16,7 @@ from util.img_utils import clear_color, mask_generator
 from util.logger import get_logger
 import torchvision
 from util.dataset import Dataset
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 
 def load_yaml(file_path: str) -> dict:
@@ -92,7 +93,9 @@ def main():
 
     # Prepare dataloader
     data_config = task_config['data']
-    transform = transforms.Compose([transforms.ToTensor(),
+    transform = transforms.Compose([transforms.Resize(256),
+                                    transforms.CenterCrop(256),
+                                    transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     dataset = Dataset(root = "data/samples", transform = transform) # change your imagenet root here
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
@@ -104,8 +107,12 @@ def main():
         )
         
     # Do Inference
+    psnrs = []
+    ssims = []
+    length = 30
+    full_length = 100
     for i, (ref_img, c) in enumerate(loader):
-        if i >= 3:
+        if i >= full_length:
             break
         logger.info(f"Inference for image {i}")
         fname = f'{i:03}.png'
@@ -120,9 +127,18 @@ def main():
         # x_start = 0.3 * x_start + 0.7 * operator.transpose(y_n).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
 
-        plt.imsave(os.path.join(out_path, 'input', fname), clear_color(y_n))
-        plt.imsave(os.path.join(out_path, 'label', fname), clear_color(ref_img))
-        plt.imsave(os.path.join(out_path, 'recon', fname), clear_color(sample))
+        ground = clear_color(ref_img)
+        generated = clear_color(sample)
+        psnrs.append(peak_signal_noise_ratio(ground, generated))
+        ssims.append(structural_similarity(ground, generated, data_range=1, channel_axis=2))
+
+        if i < length:
+            plt.imsave(os.path.join(out_path, 'input', fname), clear_color(y_n))
+            plt.imsave(os.path.join(out_path, 'label', fname), clear_color(ref_img))
+            plt.imsave(os.path.join(out_path, 'recon', fname), clear_color(sample))
+
+    print(f"PSNR: {sum(psnrs) / len(psnrs)}")
+    print(f"SSIM: {sum(ssims) / len(ssims)}\n")
 
 if __name__ == '__main__':
     main()

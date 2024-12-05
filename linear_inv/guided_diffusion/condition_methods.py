@@ -122,7 +122,7 @@ class WoProjSampling(ConditioningMethod):
         norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
         x_0_hat = x_0_hat.detach()
         x_0_hat -= norm_grad * self.scale / at.sqrt()
-        return x_0_hat, norm
+        return x_0_hat, norm, 1
     
 @register_conditioning_method(name='mpgd_w_proj')
 class WProjSampling(ConditioningMethod):
@@ -143,7 +143,37 @@ class WProjSampling(ConditioningMethod):
             x_0_hat = x_0_hat.detach()
             x_0_hat -= norm_grad * self.scale / at.sqrt()
         
-        return x_0_hat, norm
+        return x_0_hat, norm, 1
+    
+@register_conditioning_method(name='ddnm')
+class DDNM(ConditioningMethod):
+    def __init__(self, operator, noiser, **kwargs):
+        super().__init__(operator, noiser)
+        self.scale = kwargs.get('scale', 1.0)
+
+    def conditioning(self, x_0_hat, measurement, at, **kwargs):
+        t = kwargs.get('t', 0.5)
+        sigma_t = kwargs.get('sigma', 1.0)
+        gamma_t = 1
+        sigma_y = 0.05
+        if 1.0 > t > 0.1:
+            # norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+            x_0_hat = x_0_hat.detach()
+            if sigma_t.mean() >= t*sigma_y: 
+                lambda_t = 1
+                gamma_t = sigma_t**2 - (t*lambda_t*sigma_y)**2
+            else:
+                lambda_t = sigma_t/(at*sigma_y)
+                gamma_t = 0
+            # x_0_hat -= norm_grad * self.scale / at.sqrt()
+            x_0_hat = x_0_hat + lambda_t*self.operator.transpose(measurement - self.operator.forward(x_0_hat))
+            norm = torch.linalg.norm(x_0_hat)
+        else:
+            norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+            x_0_hat = x_0_hat.detach()
+            x_0_hat -= norm_grad * self.scale / at.sqrt()
+        
+        return x_0_hat, norm, gamma_t
 
 @register_conditioning_method(name='mpgd_ae')
 class AESampling(ConditioningMethod):
@@ -190,7 +220,7 @@ class AESampling(ConditioningMethod):
             norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x_0_hat = x_0_hat.detach()
             x_0_hat -= norm_grad * self.scale / at.sqrt()
-        return x_0_hat, norm
+        return x_0_hat, norm, 1
     
 @register_conditioning_method(name='mpgd_variant')
 class VariantSampling(ConditioningMethod):
@@ -247,15 +277,15 @@ class VariantSampling(ConditioningMethod):
             norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x_0_hat = x_0_hat.detach()
             x_0_hat -= norm_grad * self.scale / at.sqrt()
-        return x_0_hat, norm
+        return x_0_hat, norm, 1
     
 @register_conditioning_method(name='mpgd_admm')
 class ADMMSampling(ConditioningMethod):
     def __init__(self, operator, noiser, resume, **kwargs):
         super().__init__(operator, noiser)
         self.scale = kwargs.get('scale', 1.0)
-        self.rho = 0.3
-        self.steps = 2
+        self.rho = 1e-4
+        self.steps = 3
         ckpt = None
         if os.path.isfile(resume):
             try:
@@ -326,7 +356,95 @@ class ADMMSampling(ConditioningMethod):
             norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x = x_0_hat.detach()
             x -= norm_grad * self.scale / at.sqrt()
-        return x, norm
+        return x, norm, 1
+    
+@register_conditioning_method(name='mpgd_admmp')
+class ADMMSamplingPlus(ConditioningMethod):
+    def __init__(self, operator, noiser, resume, **kwargs):
+        super().__init__(operator, noiser)
+        self.scale = kwargs.get('scale', 1.0)
+        self.rho = 0.3
+        self.steps = 2
+        ckpt = None
+        if os.path.isfile(resume):
+            try:
+                resumedir = '/'.join(resume.split('/')[:-1])
+            except ValueError:
+                paths = resume.split("/")
+                idx = -2
+                resumedir = "/".join(paths[:idx])
+            ckpt = resume
+        else:
+            assert os.path.isdir(resume), f"{resume} is not a directory"
+            resumedir = resume.rstrip("/")
+            ckpt = os.path.join(resumedir, "model.ckpt")
+
+        base_configs = sorted(glob.glob(os.path.join(resumedir, "config.yaml")))
+
+        configs = [OmegaConf.load(cfg) for cfg in base_configs]
+        cli = OmegaConf.from_dotlist([])
+        config = OmegaConf.merge(*configs, cli)
+
+        gpu = True
+        eval_mode = True
+
+        self.ldm_model, _ = load_model(config, ckpt, gpu, eval_mode)
+
+    def conditioning(self, x_0_hat, measurement, at, **kwargs):
+        t = kwargs.get('t', 0.5)
+        input_shape = x_0_hat.shape
+        # norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+
+        # if self.z is None or self.u is None:
+        #     self.z = x_0_hat.clone().detach()
+        #     self.u = torch.zeros_like(x_0_hat).to(x_0_hat.clone())
+
+        # x = (1 - self.rho) * x_0_hat + self.rho * self.z - self.rho * self.u
+        # self.z = self.operator.project(x + self.u, measurement)
+        # self.u += x - self.z
+
+        sigma_t = kwargs.get('sigma', 1.0)
+        gamma_t = 1
+        sigma_y = 0.05
+        if 0.5 > t > 0.2:
+            # norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+            x_0_hat = x_0_hat.detach()
+            if sigma_t.mean() >= t*sigma_y: 
+                lambda_t = 1
+                gamma_t = sigma_t**2 - (t*lambda_t*sigma_y)**2
+            else:
+                lambda_t = sigma_t/(at*sigma_y)
+                gamma_t = 0
+            z = x_0_hat + lambda_t*self.operator.transpose(measurement - self.operator.forward(x_0_hat))
+            u = x_0_hat - z
+            
+            # Step 2
+            x = (1 - self.rho) * x_0_hat + self.rho * z - self.rho * u
+            z = x + u + lambda_t*self.operator.transpose(measurement - self.operator.forward(x + u))
+            u += x - z
+            norm = torch.linalg.norm(x - x_0_hat)
+
+            # Step 3 - 
+            x_prev = x_0_hat
+            x_prev.requires_grad = True
+            for _ in range(self.steps):
+                x = x.detach()
+                x.requires_grad = True
+                E_x0_t = self.ldm_model.encode_first_stage(x_prev)
+                D_x0_t = self.ldm_model.decode_first_stage(E_x0_t)
+                grad, norm = self.tangent_norm(x_prev, x, D_x0_t, **kwargs)
+                grad = grad.reshape(input_shape)
+                x = x_prev - self.rho * grad / norm.sqrt()
+                x_prev = x
+                x -= self.rho * (x - z + u)
+                z = x + u + lambda_t*self.operator.transpose(measurement - self.operator.forward(x + u))
+                u += x - z
+            # x = z
+        else:
+            norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
+            x = x_0_hat.detach()
+            x -= norm_grad * self.scale / at.sqrt()
+        return x, norm, 1
 
 @register_conditioning_method(name='mpgd_z')
 class LatentSampling(ConditioningMethod):
@@ -380,4 +498,4 @@ class LatentSampling(ConditioningMethod):
             norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x_0_hat = x_0_hat.detach()
             x_0_hat -= norm_grad * self.scale / at.sqrt()
-        return x_0_hat, norm
+        return x_0_hat, norm, 1

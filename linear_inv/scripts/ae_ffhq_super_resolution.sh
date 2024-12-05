@@ -4,7 +4,7 @@ python ffhq_sample_condition.py \
     --task_config=configs/super_resolution_config.yaml \
     --timestep=100 \
     --scale=5 \
-    --method="mpgd_admm" \
+    --method="mpgd_admmp" \
 
 
 python ffhq_sample_condition.py \
@@ -13,7 +13,7 @@ python ffhq_sample_condition.py \
     --task_config=configs/super_resolution_config.yaml \
     --timestep=50 \
     --scale=10 \
-    --method="mpgd_admm" \
+    --method="mpgd_admmp" \
 
 
 python ffhq_sample_condition.py \
@@ -22,5 +22,5 @@ python ffhq_sample_condition.py \
     --task_config=configs/super_resolution_config.yaml \
     --timestep=20 \
     --scale=20 \
-    --method="mpgd_admm" \
+    --method="mpgd_admmp" \
 

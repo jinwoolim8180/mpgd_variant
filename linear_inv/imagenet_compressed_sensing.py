@@ -16,6 +16,7 @@ from data.dataloader import get_dataset, get_dataloader
 from util.img_utils import clear_color, mask_generator
 from util.logger import get_logger
 from util.dataset import Dataset
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import torchvision
 
 
@@ -98,13 +99,15 @@ def main():
         transforms.CenterCrop(256),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    dataset = Dataset(root = "data/DIV2K", transform = transform) # change your imagenet root here
+    dataset = Dataset(root = "data/Set11", transform = transform) # change your imagenet root here
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
         
     # Do Inference
     n_saved = 0
+    psnrs = []
+    ssims = []
     print(f"LEN: {len(dataset)}")
-    length = 11
+    length = 100
     c_set = list(range(min(len(dataset), length)))
     for i, (ref_img, c) in enumerate(loader):
         c = int(c)
@@ -125,11 +128,19 @@ def main():
         x_start = operator.transpose(y_n).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
 
+        ground = clear_color(ref_img)
+        generated = clear_color(sample)
+        psnrs.append(peak_signal_noise_ratio(ground, generated))
+        ssims.append(structural_similarity(ground, generated, data_range=1, channel_axis=2))
+
         plt.imsave(os.path.join(out_path, 'input', fname), clear_color(operator.transpose(y_n)))
         plt.imsave(os.path.join(out_path, 'label', fname), clear_color(ref_img))
         plt.imsave(os.path.join(out_path, 'recon', fname), clear_color(sample))
         
         n_saved += 1
+
+    print(f"PSNR: {sum(psnrs) / len(psnrs)}")
+    print(f"SSIM: {sum(ssims) / len(ssims)}\n")
 
 if __name__ == '__main__':
     main()
