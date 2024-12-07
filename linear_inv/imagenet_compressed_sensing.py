@@ -99,7 +99,7 @@ def main():
         transforms.CenterCrop(256),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    dataset = Dataset(root = "data/Set11", transform = transform) # change your imagenet root here
+    dataset = Dataset(root = "data/DIV2K", transform = transform) # change your imagenet root here
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
         
     # Do Inference

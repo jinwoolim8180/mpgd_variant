@@ -116,8 +116,8 @@ def main():
         y_n = noiser(y)
 
         # Sampling
-        x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
-        x_start = 0.5 * x_start + 0.5 * operator.transpose(y_n).requires_grad_()
+        # x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
+        x_start = operator.transpose(y_n).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
 
         plt.imsave(os.path.join(out_path, 'input', fname), clear_color(operator.transpose(y_n)))

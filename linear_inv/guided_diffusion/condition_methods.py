@@ -136,7 +136,7 @@ class WProjSampling(ConditioningMethod):
             # norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x_0_hat = x_0_hat.detach()
             # x_0_hat -= norm_grad * self.scale / at.sqrt()
-            x_0_hat = self.operator.project(x_0_hat, measurement)
+            x_0_hat = x_0_hat + self.operator.transpose(measurement - self.operator.forward(x_0_hat))
             norm = torch.linalg.norm(x_0_hat)
         else:
             norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
@@ -153,15 +153,15 @@ class DDNM(ConditioningMethod):
 
     def conditioning(self, x_0_hat, measurement, at, **kwargs):
         t = kwargs.get('t', 0.5)
-        sigma_t = kwargs.get('sigma', 1.0)
+        sigma_t = (1 - at).mean().sqrt()
         gamma_t = 1
         sigma_y = 0.05
         if 1.0 > t > 0.1:
             # norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x_0_hat = x_0_hat.detach()
-            if sigma_t.mean() >= t*sigma_y: 
+            if sigma_t.mean() >= at.mean().sqrt()*sigma_y: 
                 lambda_t = 1
-                gamma_t = sigma_t**2 - (t*lambda_t*sigma_y)**2
+                gamma_t = (sigma_t**2 - at * (lambda_t*sigma_y)**2).sqrt()
             else:
                 lambda_t = sigma_t/(at*sigma_y)
                 gamma_t = 0
@@ -284,8 +284,8 @@ class ADMMSampling(ConditioningMethod):
     def __init__(self, operator, noiser, resume, **kwargs):
         super().__init__(operator, noiser)
         self.scale = kwargs.get('scale', 1.0)
-        self.rho = 1e-4
-        self.steps = 3
+        self.rho = 0.08
+        self.steps = 2
         ckpt = None
         if os.path.isfile(resume):
             try:
@@ -327,12 +327,12 @@ class ADMMSampling(ConditioningMethod):
         if 0.5 > t > 0.2:
             # Step 1
             x_0_hat = x_0_hat.detach()
-            z = self.operator.project(x_0_hat, measurement)
+            z = x_0_hat + self.operator.transpose(measurement - self.operator.forward(x_0_hat))
             u = x_0_hat - z
             
             # Step 2
             x = (1 - self.rho) * x_0_hat + self.rho * z - self.rho * u
-            z = self.operator.project(x + u, measurement)
+            z = x + u + self.operator.transpose(measurement - self.operator.forward(x + u))
             u += x - z
             norm = torch.linalg.norm(x - x_0_hat)
 
@@ -346,10 +346,11 @@ class ADMMSampling(ConditioningMethod):
                 D_x0_t = self.ldm_model.decode_first_stage(E_x0_t)
                 grad, norm = self.tangent_norm(x_prev, x, D_x0_t, **kwargs)
                 grad = grad.reshape(input_shape)
-                x = x_prev - self.rho * grad / norm.sqrt()
+                inn = torch.sum(grad * (x - x_prev)) / norm
+                x = x_prev - abs(inn) * grad
                 x_prev = x
                 x -= self.rho * (x - z + u)
-                z = self.operator.project(x + u, measurement)
+                z = x + u + self.operator.transpose(measurement - self.operator.forward(x + u))
                 u += x - z
             # x = z
         else:
@@ -363,8 +364,8 @@ class ADMMSamplingPlus(ConditioningMethod):
     def __init__(self, operator, noiser, resume, **kwargs):
         super().__init__(operator, noiser)
         self.scale = kwargs.get('scale', 1.0)
-        self.rho = 0.3
-        self.steps = 2
+        self.rho = 0.1
+        self.steps = 3
         ckpt = None
         if os.path.isfile(resume):
             try:
@@ -409,7 +410,7 @@ class ADMMSamplingPlus(ConditioningMethod):
         if 0.5 > t > 0.2:
             # norm_grad, norm = self.grad_and_value(x_prev=x_0_hat, x_0_hat=x_0_hat, measurement=measurement, **kwargs)
             x_0_hat = x_0_hat.detach()
-            if sigma_t.mean() >= t*sigma_y: 
+            if sigma_t.mean() >= t*sigma_y:
                 lambda_t = 1
                 gamma_t = sigma_t**2 - (t*lambda_t*sigma_y)**2
             else:
@@ -433,8 +434,8 @@ class ADMMSamplingPlus(ConditioningMethod):
                 E_x0_t = self.ldm_model.encode_first_stage(x_prev)
                 D_x0_t = self.ldm_model.decode_first_stage(E_x0_t)
                 grad, norm = self.tangent_norm(x_prev, x, D_x0_t, **kwargs)
-                grad = grad.reshape(input_shape)
-                x = x_prev - self.rho * grad / norm.sqrt()
+                inn = torch.sum(grad * (x - x_prev)) / norm
+                x = x_prev - inn * grad
                 x_prev = x
                 x -= self.rho * (x - z + u)
                 z = x + u + lambda_t*self.operator.transpose(measurement - self.operator.forward(x + u))
